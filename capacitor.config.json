@@ -1,0 +1,21 @@
+{
+  "appId": "com.cardscanner.app",
+  "appName": "Card Scanner",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "androidScaleType": "CENTER_CROP",
+      "splashFullScreen": true,
+      "splashImmersive": true,
+      "backgroundColor": "#0f0f1a"
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#0f0f1a"
+    }
+  }
+}
