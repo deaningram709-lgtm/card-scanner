@@ -1,5 +1,5 @@
 {
-  "appId": "com.cardscanner.app",
+  "appId": "com.deaningram.cardscanner",
   "appName": "Card Scanner",
   "webDir": "www",
   "server": {
