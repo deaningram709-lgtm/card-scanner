@@ -47,5 +47,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Card Scanner needs access to your photo library to select business card images for scanning.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Card Scanner needs camera access to photograph business cards.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Card Scanner needs access to save scanned contacts to your phone.</string>
 </dict>
 </plist>
