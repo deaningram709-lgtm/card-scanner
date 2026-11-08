@@ -117,8 +117,9 @@
     summary::-webkit-details-marker { display: none; }
     .field { margin-bottom: 10px; }
     .field label { display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: .05em; }
-    .field input { width: 100%; background: #111120; border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; color: var(--text); font-size: 0.9rem; outline: none; }
-    .field input:focus { border-color: var(--accent); }
+    .field input, .field textarea { width: 100%; background: #111120; border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; color: var(--text); font-size: 0.9rem; outline: none; }
+    .field input:focus, .field textarea:focus { border-color: var(--accent); }
+    .field textarea { resize: vertical; min-height: 90px; font-family: inherit; line-height: 1.45; }
 
     /* QR containers */
     .qr-box { display: inline-block; border-radius: 12px; border: 5px solid #fff; overflow: hidden; cursor: pointer; background: #fff; }
@@ -213,6 +214,17 @@
         </div>
       </div>
 
+      <!-- Personal notes -->
+      <div class="card">
+        <div style="font-size:0.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:600;margin-bottom:12px;">Your Notes</div>
+        <div class="field" style="margin-bottom:0;">
+          <textarea id="f-notes" rows="4" placeholder="Where you met, what you talked about, follow-up reminders..."></textarea>
+        </div>
+        <p style="font-size:0.76rem;color:var(--muted);margin-top:8px;line-height:1.5;">
+          Saved with the contact in Outlook and in the contact file. Not included in the QR code. Type notes before saving.
+        </p>
+      </div>
+
       <!-- Save to your contacts -->
       <div class="card">
         <div style="font-size:0.78rem;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:600;margin-bottom:12px;">Save to Your Contacts</div>
@@ -282,7 +294,7 @@
 // ── Utilities ────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 
-function buildVCard(c, photoBase64 = null) {
+function buildVCard(c, photoBase64 = null, includeNotes = false) {
   const fold = line => {
     if (line.length <= 75) return line;
     const parts = [line.slice(0, 75)];
@@ -303,6 +315,12 @@ function buildVCard(c, photoBase64 = null) {
   if (c.address || c.city || c.state || c.zip || c.country)
     lines.push(`ADR;TYPE=WORK:;;${c.address||''};${c.city||''};${c.state||''};${c.zip||''};${c.country||''}`);
   if (c.categories)   lines.push(`CATEGORIES:${c.categories}`);
+  // Personal notes go in the saved contact only, never the shareable QR code
+  if (includeNotes && c.notes) {
+    const esc = c.notes.replace(/\\/g, '\\\\').replace(/\r\n|\r|\n/g, '\\n')
+                       .replace(/,/g, '\\,').replace(/;/g, '\\;');
+    lines.push(fold(`NOTE:${esc}`));
+  }
   if (photoBase64)
     lines.push(fold(`PHOTO;ENCODING=b;TYPE=JPEG:${photoBase64}`));
   lines.push('END:VCARD');
@@ -560,6 +578,8 @@ async function msSaveContact(includePhoto) {
   }
   // Categories (group)
   if (contact.categories) msContact.categories = [contact.categories];
+  // Personal notes -> the Notes field on the Outlook contact
+  if (contact.notes) msContact.personalNotes = contact.notes;
 
   // API endpoint
   const url = folderId
@@ -795,6 +815,7 @@ $('file-input').addEventListener('change', () => { if ($('file-input').files[0])
 
 function loadFile(file) {
   currentFile = file;
+  $('f-notes').value = '';
   currentImgSrc = URL.createObjectURL(file);
   $('preview-img').src = currentImgSrc;
   $('preview-wrap').style.display = 'block';
@@ -882,13 +903,14 @@ function getContactFromFields() {
     email: $('f-email').value, website: $('f-website').value,
     address: $('f-address').value, city: $('f-city').value,
     state: $('f-state').value, zip: $('f-zip').value, country: $('f-country').value,
+    notes: $('f-notes').value.trim(),
     categories: getSelectedGroup()
   };
 }
 
 $('save-contact-btn').addEventListener('click', () => {
   const contact = getContactFromFields();
-  const vcard = buildVCard(contact, null);
+  const vcard = buildVCard(contact, null, true);
   const name = [contact.firstName, contact.lastName].filter(Boolean).join('-') || 'contact';
   downloadVcf(vcard, name + '.vcf');
 });
@@ -898,7 +920,7 @@ $('save-vcf-photo-btn').addEventListener('click', () => {
   // Get the current photo from the badge
   const badgeImg = $('badge-photo');
   const photoB64 = badgeImg && badgeImg.src.startsWith('data:') ? badgeImg.src.split(',')[1] : null;
-  const vcard = buildVCard(contact, photoB64);
+  const vcard = buildVCard(contact, photoB64, true);
   const name = [contact.firstName, contact.lastName].filter(Boolean).join('-') || 'contact';
   downloadVcf(vcard, name + '.vcf');
 });
@@ -931,6 +953,7 @@ $('regen-btn').addEventListener('click', async () => {
 $('new-btn').addEventListener('click', () => {
   currentFile = currentImgSrc = currentVcard = currentVcardWithPhoto = null;
   $('file-input').value = '';
+  $('f-notes').value = '';
   $('preview-wrap').style.display = 'none';
   $('scan-btn').disabled = true;
   $('result-section').style.display = 'none';
