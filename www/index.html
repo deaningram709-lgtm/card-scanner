@@ -693,6 +693,7 @@ function showSetup() {
 function showMain() {
   $('setup-screen').style.display = 'none';
   $('main-screen').style.display  = 'block';
+  restoreDraft();
   $('subtitle').textContent = 'Photograph a card — get an instant shareable contact QR';
 }
 
@@ -816,6 +817,7 @@ $('file-input').addEventListener('change', () => { if ($('file-input').files[0])
 function loadFile(file) {
   currentFile = file;
   $('f-notes').value = '';
+  clearDraft();
   currentImgSrc = URL.createObjectURL(file);
   $('preview-img').src = currentImgSrc;
   $('preview-wrap').style.display = 'block';
@@ -876,6 +878,7 @@ async function doScan() {
     }
 
     $('result-section').style.display = 'block';
+    saveDraft();
     $('result-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch(e) {
     $('scan-error').textContent = e.message;
@@ -954,6 +957,7 @@ $('new-btn').addEventListener('click', () => {
   currentFile = currentImgSrc = currentVcard = currentVcardWithPhoto = null;
   $('file-input').value = '';
   $('f-notes').value = '';
+  clearDraft();
   $('preview-wrap').style.display = 'none';
   $('scan-btn').disabled = true;
   $('result-section').style.display = 'none';
@@ -961,6 +965,56 @@ $('new-btn').addEventListener('click', () => {
   $('manage-groups-row').style.display = 'none';
   window.scrollTo({ top: 0, behavior: 'smooth' });
 });
+
+// ── Draft: keep the current contact and notes through page reloads ────────────
+// Microsoft sign-in leaves the page and comes back, and phone browsers can
+// reload a tab to free memory. Either way the scanned contact, notes, group and
+// photo are restored from this draft instead of being lost.
+const DRAFT_KEY = 'bcs_draft';
+const DRAFT_MAX_AGE = 24 * 60 * 60 * 1000;
+const DRAFT_FIELDS = ['first','last','org','title','phone','mobile','email','website',
+                      'address','city','state','zip','country','notes'];
+
+function saveDraft() {
+  if ($('result-section').style.display !== 'block') return;
+  const d = { t: Date.now(), group: $('group-select').value, fields: {} };
+  DRAFT_FIELDS.forEach(k => { const el = $('f-' + k); d.fields[k] = el ? el.value : ''; });
+  const img = $('badge-photo');
+  if ($('photo-badge').style.display === 'flex' && img.src.startsWith('data:')) d.photo = img.src;
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify(d)); }
+  catch {
+    // Storage full: keep the text and notes, drop the photo
+    delete d.photo;
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch {}
+  }
+}
+
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch {}
+}
+
+function restoreDraft() {
+  let d = null;
+  try { d = JSON.parse(localStorage.getItem(DRAFT_KEY)); } catch {}
+  if (!d || !d.fields) return;
+  if (Date.now() - d.t > DRAFT_MAX_AGE) { clearDraft(); return; }
+  DRAFT_FIELDS.forEach(k => { const el = $('f-' + k); if (el) el.value = d.fields[k] || ''; });
+  if (d.group && [...$('group-select').options].some(o => o.value === d.group)) $('group-select').value = d.group;
+  if (d.photo) {
+    $('badge-photo').src = d.photo;
+    $('photo-badge').style.display = 'flex';
+    $('save-vcf-photo-btn').style.display = 'flex';
+  }
+  try {
+    currentVcard = buildVCard(getContactFromFields(), null);
+    renderQR($('qr-container'), currentVcard, Math.min(window.innerWidth - 64, 280));
+  } catch (e) { console.error('Draft QR error:', e); }
+  $('result-section').style.display = 'block';
+}
+
+$('result-section').addEventListener('input', saveDraft);
+$('result-section').addEventListener('change', saveDraft);
+window.addEventListener('pagehide', saveDraft);
 
 init();
 </script>
