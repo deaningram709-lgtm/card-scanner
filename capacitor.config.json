@@ -17,5 +17,9 @@
       "style": "DARK",
       "backgroundColor": "#0f0f1a"
     }
+  },
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#0f0f1a"
   }
 }

@@ -19,6 +19,13 @@ workflows:
       - name: Sync Capacitor
         script: |
           npx cap sync ios
+      - name: Set build number
+        script: |
+          # App Store Connect rejects an upload whose build number was used before.
+          # Codemagic counts builds of this workflow; +10 keeps clear of the early hand-set builds.
+          NEW_BUILD=$((BUILD_NUMBER + 10))
+          sed -i '' -E "s/CURRENT_PROJECT_VERSION = [0-9]+;/CURRENT_PROJECT_VERSION = $NEW_BUILD;/g" ios/App/App.xcodeproj/project.pbxproj
+          echo "Build number set to $NEW_BUILD"
       - name: Set up code signing
         script: |
           xcode-project use-profiles

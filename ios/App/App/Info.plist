@@ -30,13 +30,11 @@
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
 	<array>
@@ -48,10 +46,23 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Card Scanner needs access to your photo library to select business card images for scanning.</string>
+	<string>Card Scanner lets you pick a photo of a business card from your library to scan.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Card Scanner needs camera access to photograph business cards.</string>
+	<string>Card Scanner uses the camera to take a photo of a business card so it can read the contact details.</string>
 	<key>NSContactsUsageDescription</key>
-	<string>Card Scanner needs access to save scanned contacts to your phone.</string>
+	<string>Card Scanner adds the business cards you scan to your Contacts.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.deaningram.cardscanner.msauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>msauth.com.deaningram.cardscanner</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

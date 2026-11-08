@@ -119,6 +119,13 @@
     .field label { display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 3px; text-transform: uppercase; letter-spacing: .05em; }
     .field input, .field textarea { width: 100%; background: #111120; border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; color: var(--text); font-size: 0.9rem; outline: none; }
     .field input:focus, .field textarea:focus { border-color: var(--accent); }
+    .consent { display: flex; gap: 10px; align-items: flex-start; font-size: 0.8rem; color: var(--muted); line-height: 1.5; margin: 4px 0 12px; text-align: left; }
+    .consent input { margin-top: 3px; width: 18px; height: 18px; flex-shrink: 0; }
+    .phone-msg { display: none; border-radius: 10px; padding: 11px 14px; font-size: 0.86rem; margin-top: 12px; }
+    .phone-msg.ok { background: rgba(16,185,129,.1); border: 1px solid rgba(16,185,129,.3); color: #6ee7b7; }
+    .phone-msg.err { background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); color: #fca5a5; }
+    .footer-links { text-align: center; font-size: 0.76rem; margin: 14px 0 8px; }
+    .footer-links a { color: var(--muted); }
     .field textarea { resize: vertical; min-height: 90px; font-family: inherit; line-height: 1.45; }
 
     /* QR containers */
@@ -151,14 +158,15 @@
   <div id="setup-screen" class="card" style="display:none;">
     <div class="setup-icon">🔑</div>
     <p class="setup-desc">
-      This app uses Claude AI to read business cards. Your API key is stored only on this device and sent directly to Anthropic — never anywhere else.<br><br>
-      Get a free key at <a href="https://console.anthropic.com/account/keys" target="_blank">console.anthropic.com</a>
+      This app uses Anthropic's Claude AI to read business cards. Your API key is stored only on this device and is used only to send card photos to Anthropic.<br><br>
+      Get a key at <a href="https://console.anthropic.com/account/keys" target="_blank">console.anthropic.com</a>
     </p>
     <div class="key-wrap">
       <input type="password" id="key-input" placeholder="sk-ant-api03-…" autocomplete="off" spellcheck="false" />
       <button class="eye" id="eye-btn" tabindex="-1">👁</button>
     </div>
     <p class="key-hint" id="key-hint"></p>
+    <label class="consent"><input type="checkbox" id="ai-consent" /> <span>I agree that photos of the cards I scan, and the contact details on them, are sent to Anthropic's Claude AI to read the card. <a href="https://ursacardstoragev2.netlify.app/privacy.html" target="_blank">Privacy policy</a></span></label>
     <div class="error" id="setup-error"></div>
     <button class="btn" id="save-btn">Save Key &amp; Start</button>
   </div>
@@ -252,10 +260,11 @@
             <div id="ms-success" style="display:none;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.3);border-radius:10px;padding:11px 14px;color:#6ee7b7;font-size:0.86rem;margin-top:12px;"></div>
           </div>
         </div>
-        <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;margin-top:4px;text-align:center;">— or save as file —</div>
+        <div id="save-file-label" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;margin-top:4px;text-align:center;">— or save as file —</div>
         <button class="btn btn-green" id="save-contact-btn">➕ Add to My Contacts</button>
         <button class="btn btn-blue" id="save-vcf-photo-btn" style="display:none;">📸 Add to My Contacts (with photo)</button>
-        <p style="font-size:0.76rem;color:var(--muted);margin-top:10px;line-height:1.6;text-align:center;">
+        <div class="phone-msg" id="phone-save-msg"></div>
+        <p id="save-file-hint" style="font-size:0.76rem;color:var(--muted);margin-top:10px;line-height:1.6;text-align:center;">
           Tap the button above — your phone will prompt you to save the contact.
         </p>
       </div>
@@ -287,6 +296,7 @@
     </div><!-- /result-section -->
 
     <button class="btn btn-outline" id="change-key-btn" style="margin-top:4px;">Change API Key</button>
+    <div class="footer-links"><a href="https://ursacardstoragev2.netlify.app/privacy.html" target="_blank">Privacy policy</a></div>
   </div><!-- /main-screen -->
 </div><!-- /page -->
 
@@ -422,6 +432,8 @@ function getQRDataURL(container) {
 const LS_KEY = 'bcs_api_key';
 function getKey() { return localStorage.getItem(LS_KEY); }
 function setKey(k) { localStorage.setItem(LS_KEY, k); }
+const CONSENT_KEY = 'bcs_ai_consent';
+function hasConsent() { return localStorage.getItem(CONSENT_KEY) === '1'; }
 
 // ── Contact Groups ───────────────────────────────────────────────────────────
 const GRP_KEY = 'bcs_groups';
@@ -448,6 +460,189 @@ function getSelectedGroup() {
   return (v && v !== '__new__') ? v : '';
 }
 
+// ── iPhone app (Capacitor) ───────────────────────────────────────────────────
+// Inside the App Store app the page runs in a native shell. A web page can't do
+// Microsoft sign-in, file downloads or saving to Contacts there, so those use
+// native plugins instead. The website never takes these paths.
+const IS_IOS_APP = !!(window.Capacitor && Capacitor.isNativePlatform &&
+                      Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios');
+const Plug = IS_IOS_APP ? Capacitor.Plugins : {};
+
+// Microsoft sign-in for the app: authorization code + PKCE in the system browser,
+// returning to the app through its own URL scheme. Needs the "iOS / macOS"
+// platform (bundle ID com.deaningram.cardscanner) in the Azure app registration.
+const MS_NATIVE_REDIRECT = 'msauth.com.deaningram.cardscanner://auth';
+const MS_NATIVE_SCOPES   = 'openid profile offline_access User.Read Contacts.ReadWrite';
+const MS_AUTHORIZE_URL   = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize';
+const MS_TOKEN_URL       = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+const MS_NATIVE_KEY      = 'bcs_ms_native';
+let msNativePending = null;   // { state, resolve, reject } while the sign-in browser is open
+
+function b64url(bytes) {
+  let s = '';
+  bytes.forEach(b => { s += String.fromCharCode(b); });
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function randomToken(len) {
+  return b64url(crypto.getRandomValues(new Uint8Array(len)));
+}
+async function pkceFor(verifier) {
+  if (window.crypto && crypto.subtle) {
+    const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+    return { challenge: b64url(new Uint8Array(hash)), method: 'S256' };
+  }
+  return { challenge: verifier, method: 'plain' };
+}
+function msNativeLoad() {
+  try { return JSON.parse(localStorage.getItem(MS_NATIVE_KEY)) || null; } catch { return null; }
+}
+function msNativeStore(s) { localStorage.setItem(MS_NATIVE_KEY, JSON.stringify(s)); }
+
+async function msNativeTokenRequest(params) {
+  // Native HTTP: Microsoft refuses cross-origin token requests from a web view
+  const res = await Plug.CapacitorHttp.post({
+    url: MS_TOKEN_URL,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    data: Object.assign({ client_id: msalConfig.auth.clientId, scope: MS_NATIVE_SCOPES }, params)
+  });
+  const d = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+  if (res.status >= 400 || !d || !d.access_token) {
+    throw new Error((d && (d.error_description || d.error)) || ('Microsoft sign-in error ' + res.status));
+  }
+  const prev = msNativeLoad() || {};
+  const s = {
+    access: d.access_token,
+    exp: Date.now() + (Number(d.expires_in) || 3600) * 1000,
+    refresh: d.refresh_token || prev.refresh,
+    name: prev.name, username: prev.username
+  };
+  if (d.id_token) {
+    try {
+      const p = JSON.parse(decodeURIComponent(escape(atob(
+        d.id_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))));
+      s.name = p.name || s.name;
+      s.username = p.preferred_username || p.email || s.username;
+    } catch {}
+  }
+  msNativeStore(s);
+  return s;
+}
+
+async function msNativeSignIn() {
+  const verifier = randomToken(48);
+  const state = randomToken(16);
+  const { challenge, method } = await pkceFor(verifier);
+  const url = MS_AUTHORIZE_URL + '?' + new URLSearchParams({
+    client_id: msalConfig.auth.clientId, response_type: 'code', response_mode: 'query',
+    redirect_uri: MS_NATIVE_REDIRECT, scope: MS_NATIVE_SCOPES, state,
+    code_challenge: challenge, code_challenge_method: method, prompt: 'select_account'
+  }).toString();
+  const code = await new Promise((resolve, reject) => {
+    msNativePending = { state, resolve, reject };
+    Plug.Browser.open({ url }).catch(e => { msNativePending = null; reject(e); });
+  });
+  const s = await msNativeTokenRequest({
+    grant_type: 'authorization_code', code, redirect_uri: MS_NATIVE_REDIRECT, code_verifier: verifier
+  });
+  msAccount = { name: s.name, username: s.username };
+  onMsSignedIn();
+}
+
+async function msNativeGetToken() {
+  let s = msNativeLoad();
+  if (s && s.access && Date.now() < s.exp - 60000) return s.access;
+  if (s && s.refresh) {
+    s = await msNativeTokenRequest({ grant_type: 'refresh_token', refresh_token: s.refresh });
+    return s.access;
+  }
+  throw new Error('Please sign in with Microsoft again.');
+}
+
+function msNativeSignOut() {
+  localStorage.removeItem(MS_NATIVE_KEY);
+  msAccount = null;
+  $('ms-signed-in').style.display = 'none';
+  $('ms-signin-btn').style.display = 'flex';
+}
+
+if (IS_IOS_APP) {
+  // Microsoft sends the browser back to msauth.com.deaningram.cardscanner://auth?code=...
+  Plug.App.addListener('appUrlOpen', ({ url }) => {
+    if (!url || !url.startsWith(MS_NATIVE_REDIRECT) || !msNativePending) return;
+    const p = msNativePending; msNativePending = null;
+    Plug.Browser.close().catch(() => {});
+    const q = new URL(url).searchParams;
+    if (q.get('state') !== p.state) return p.reject(new Error('Sign-in response did not match. Please try again.'));
+    if (q.get('error')) return p.reject(new Error(q.get('error_description') || q.get('error')));
+    p.resolve(q.get('code'));
+  });
+  // Browser closed without finishing sign-in
+  Plug.Browser.addListener('browserFinished', () => {
+    if (!msNativePending) return;
+    const p = msNativePending; msNativePending = null;
+    const err = new Error('Sign-in cancelled'); err.cancelled = true;
+    p.reject(err);
+  });
+  // Links that would open a new tab go to the in-app browser instead
+  document.addEventListener('click', e => {
+    const a = e.target.closest && e.target.closest('a[target="_blank"]');
+    if (!a) return;
+    e.preventDefault();
+    Plug.Browser.open({ url: a.href });
+  });
+}
+
+// Save the contact straight into iPhone Contacts. iOS only lets apps write a
+// contact's Notes field with a special entitlement from Apple, so notes go to
+// Outlook only and are left off the iPhone contact.
+async function nativeSaveToPhone(includePhoto) {
+  const c = getContactFromFields();
+  const msg = $('phone-save-msg');
+  msg.style.display = 'none';
+  const contact = {
+    name: { given: c.firstName || null, family: c.lastName || null },
+    organization: { company: c.organization || null, jobTitle: c.title || null },
+    phones: [], emails: [], urls: [], postalAddresses: []
+  };
+  if (c.phone)       contact.phones.push({ type: 'work', number: c.phone });
+  if (c.mobilePhone) contact.phones.push({ type: 'mobile', number: c.mobilePhone });
+  if (c.email)       contact.emails.push({ type: 'work', address: c.email });
+  if (c.website)     contact.urls.push(c.website);
+  if (c.address || c.city || c.state || c.zip || c.country) {
+    contact.postalAddresses.push({ type: 'work', street: c.address || null, city: c.city || null,
+      region: c.state || null, postcode: c.zip || null, country: c.country || null });
+  }
+  if (includePhoto) {
+    const img = $('badge-photo');
+    if (img && img.src.startsWith('data:')) contact.image = { base64String: img.src.split(',')[1] };
+  }
+  try {
+    const perm = await Plug.Contacts.requestPermissions();
+    if (perm.contacts !== 'granted' && perm.contacts !== 'limited') {
+      throw new Error('Card Scanner needs permission to add contacts. Turn it on in Settings > Apps > Card Scanner > Contacts.');
+    }
+    await Plug.Contacts.createContact({ contact });
+    const name = [c.firstName, c.lastName].filter(Boolean).join(' ') || c.organization || 'Contact';
+    msg.className = 'phone-msg ok';
+    msg.textContent = '✓ ' + name + ' added to your iPhone Contacts.' +
+      (c.notes ? ' Your notes are saved with the Outlook contact only.' : '');
+  } catch (e) {
+    msg.className = 'phone-msg err';
+    msg.textContent = e.message || 'Could not save the contact.';
+  }
+  msg.style.display = 'block';
+}
+
+// Share a file (QR image) through the iOS share sheet: Save Image, Messages, AirDrop...
+async function nativeShareFile(base64Data, fileName, title) {
+  try {
+    const r = await Plug.Filesystem.writeFile({ path: fileName, data: base64Data, directory: 'CACHE' });
+    await Plug.Share.share({ title, files: [r.uri] });
+  } catch (e) {
+    if (!/cancel/i.test(e.message || '')) alert(e.message || 'Could not share the file.');
+  }
+}
+
 // ── Microsoft Graph ──────────────────────────────────────────────────────────
 const msalConfig = {
   auth: {
@@ -462,6 +657,11 @@ let msalInstance = null;
 let msAccount = null;
 
 async function initMsal() {
+  if (IS_IOS_APP) {
+    const s = msNativeLoad();
+    if (s && s.refresh) { msAccount = { name: s.name, username: s.username }; onMsSignedIn(); }
+    return;
+  }
   if (typeof msal === 'undefined') return;
   try {
     msalInstance = new msal.PublicClientApplication(msalConfig);
@@ -485,6 +685,11 @@ async function initMsal() {
 }
 
 async function msSignIn() {
+  if (IS_IOS_APP) {
+    try { await msNativeSignIn(); }
+    catch (e) { if (!e.cancelled) alert('Sign-in failed: ' + e.message); }
+    return;
+  }
   if (!msalInstance) { await initMsal(); if (!msalInstance) return alert('Microsoft auth library not loaded. Please check your internet connection and refresh.'); }
   try {
     await msalInstance.loginRedirect({ scopes: msalScopes });
@@ -495,6 +700,7 @@ async function msSignIn() {
 }
 
 async function msGetToken() {
+  if (IS_IOS_APP) return msNativeGetToken();
   try {
     const resp = await msalInstance.acquireTokenSilent({ scopes: msalScopes, account: msAccount });
     return resp.accessToken;
@@ -504,6 +710,7 @@ async function msGetToken() {
 }
 
 function msSignOut() {
+  if (IS_IOS_APP) return msNativeSignOut();
   msalInstance.logoutRedirect({ account: msAccount }).catch(() => {
     // Fallback: clear locally if redirect fails
     msAccount = null;
@@ -681,7 +888,12 @@ let currentVcardWithPhoto = null;
 // ── Init ──────────────────────────────────────────────────────────────────────
 function init() {
   populateGroupSelect();
-  getKey() ? showMain() : showSetup();
+  if (IS_IOS_APP) {
+    $('save-file-label').textContent = '— or save to iPhone —';
+    $('save-file-hint').textContent = 'Adds the contact straight to your iPhone Contacts.';
+  }
+  if (getKey() && hasConsent()) showMain();
+  else { if (getKey()) $('key-input').value = getKey(); showSetup(); }
   initMsal(); // async, runs in background
 }
 
@@ -713,12 +925,19 @@ $('key-input').addEventListener('input', () => {
 
 $('save-btn').addEventListener('click', async () => {
   const k = $('key-input').value.trim();
+  if (!$('ai-consent').checked) {
+    $('setup-error').textContent = 'Please tick the box to agree before continuing.';
+    $('setup-error').style.display = 'block';
+    return;
+  }
   if (!k.startsWith('sk-ant-')) {
     $('setup-error').textContent = 'Invalid API key — should start with sk-ant-';
     $('setup-error').style.display = 'block';
     return;
   }
   setKey(k);
+  localStorage.setItem(CONSENT_KEY, '1');
+  $('setup-error').style.display = 'none';
   showMain();
 });
 
@@ -912,6 +1131,7 @@ function getContactFromFields() {
 }
 
 $('save-contact-btn').addEventListener('click', () => {
+  if (IS_IOS_APP) return nativeSaveToPhone(false);
   const contact = getContactFromFields();
   const vcard = buildVCard(contact, null, true);
   const name = [contact.firstName, contact.lastName].filter(Boolean).join('-') || 'contact';
@@ -919,6 +1139,7 @@ $('save-contact-btn').addEventListener('click', () => {
 });
 
 $('save-vcf-photo-btn').addEventListener('click', () => {
+  if (IS_IOS_APP) return nativeSaveToPhone(true);
   const contact = getContactFromFields();
   // Get the current photo from the badge
   const badgeImg = $('badge-photo');
@@ -932,6 +1153,7 @@ $('save-vcf-photo-btn').addEventListener('click', () => {
 $('download-qr-btn').addEventListener('click', () => {
   const url = getQRDataURL($('qr-container'));
   if (!url) return;
+  if (IS_IOS_APP) return nativeShareFile(url.split(',')[1], 'contact-qr.png', 'Contact QR code');
   const a = document.createElement('a');
   a.href = url; a.download = 'contact-qr.png'; a.click();
 });
@@ -958,6 +1180,7 @@ $('new-btn').addEventListener('click', () => {
   $('file-input').value = '';
   $('f-notes').value = '';
   clearDraft();
+  $('phone-save-msg').style.display = 'none';
   $('preview-wrap').style.display = 'none';
   $('scan-btn').disabled = true;
   $('result-section').style.display = 'none';
